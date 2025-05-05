@@ -1,0 +1,14 @@
+{
+  "colors": [
+    {"node":"j","color":"red"},
+    {"node":"i","color":"red"},
+    {"node":"h","color":"red"},
+    {"node":"g","color":"red"},
+    {"node":"f","color":"red"},
+    {"node":"e","color":"green"},
+    {"node":"d","color":"red"},
+    {"node":"c","color":"blue"},
+    {"node":"b","color":"blue"},
+    {"node":"a","color":"red"}
+  ]
+}

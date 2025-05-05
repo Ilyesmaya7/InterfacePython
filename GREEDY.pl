@@ -1,63 +1,96 @@
-:- use_module(library(clpfd)).
 :- use_module(library(http/json)).
+:- use_module(library(http/json_convert)).
 
-% --- Color list (1-Red, 2-Blue, 3-Green, 4-Yellow) ---
-color(1).
-color(2).
-color(3).
-color(4).
+:- dynamic node/1.
+:- dynamic edge/2.
 
-% --- Graph Nodes ---
-node(a). node(b). node(c). node(d). node(e).
-node(f). node(g). node(h).
+% --- Color Definitions (ID, Name) ---
+color(1, red).
+color(2, blue).
+color(3, green).
+color(4, yellow).
 
-% --- Undirected Edges ---
-edge(a,b). edge(a,c).
-edge(b,c). edge(b,d).
-edge(c,d). edge(c,e).
-edge(d,f).
-edge(e,f). edge(e,g).
-edge(f,h).
+% --- Load Graph from JSON ---
+load_graph(File) :-
+    ( catch(open(File, read, Stream), Error, (format('Error opening file ~w: ~w~n', [File, Error]), fail)) ->
+        catch(json_read_dict(Stream, Dict), Error, (close(Stream), format('Error parsing JSON: ~w~n', [Error]), fail)),
+        close(Stream),
+        retractall(node(_)),
+        retractall(edge(_, _)),
+        ( get_dict(sommets, Dict, Nodes) -> true ; format('Error: JSON missing "sommets" key~n'), fail ),
+        ( get_dict(links, Dict, Links) -> true ; format('Error: JSON missing "links" key~n'), fail ),
+        ( is_list(Nodes) -> maplist(assert_node, Nodes) ; format('Error: "sommets" must be a list~n'), fail ),
+        ( dict_pairs(Links, _, Pairs) -> maplist(assert_edges, Pairs) ; format('Error: "links" must be a dictionary~n'), fail )
+    ; format('Failed to load graph from ~w~n', [File]), fail
+    ).
 
-% --- Entry point: greedy coloring ---
-colorGraph(ColorList) :-
-    findall(Node, node(Node), Nodes),           % Get list of all nodes
-    greedyColorNodes(Nodes, [], ColorList),     % Start greedy coloring
-    saveColorListToJSON(ColorList).             % Save the result in JSON
+assert_node(NodeStr) :-
+    atom_string(Node, NodeStr),
+    ( node(Node) -> true ; assertz(node(Node)) ).
 
-% --- Greedy coloring implementation ---
-% Base case: no more nodes to color
+assert_edges(FromStr-ToList) :-
+    atom_string(From, FromStr),
+    ( is_list(ToList) ->
+        forall(member(ToStr, ToList), (
+            atom_string(To, ToStr),
+            assert_edge(From, To),
+            assert_edge(To, From)  % Ensure undirected graph
+        ))
+    ; format('Error: Edges for node ~w must be a list~n', [From]), fail
+    ).
+
+assert_edge(From, To) :-
+    ( edge(From, To) -> true ; assertz(edge(From, To)) ).
+
+% --- Entry Point: Greedy Coloring ---
+colorGraph :-
+    findall(Node, node(Node), Nodes),
+    ( Nodes = [] -> format('Error: No nodes in graph~n'), fail ; true ),
+    greedyColorNodes(Nodes, [], ColorList),
+    printColorList(ColorList).
+
+% --- Greedy Coloring Implementation ---
 greedyColorNodes([], Acc, Acc).
-
-% Recursive step
 greedyColorNodes([Node|Rest], Acc, ColorList) :-
-    findall(C, color(C), Colors),                                  % Available colors
-    exclude(adjacentHasColor(Node, Acc), Colors, ValidColors),    % Filter out invalid colors
-    ValidColors = [ChosenColor|_],                                 % Take the first valid color
-    greedyColorNodes(Rest, [hasColor(Node, ChosenColor)|Acc], ColorList). % Assign it and continue
+    findall(ColorID-ColorName, color(ColorID, ColorName), Colors),
+    exclude(adjacentHasColor(Node, Acc), Colors, ValidColors),
+    ValidColors = [ChosenColorID-ChosenColorName|_],  % Take the first valid color
+    greedyColorNodes(Rest, [hasColor(Node, ChosenColorName)|Acc], ColorList).
 
-% --- Check if a color is invalid due to a neighbor using it ---
-adjacentHasColor(Node, ColorList, Color) :-
-    ( edge(Node, Neighbor) ; edge(Neighbor, Node) ),                   % Check undirected edge
-    member(hasColor(Neighbor, Color), ColorList).                      % Neighbor has same color?
+% --- Check if a Color is Invalid Due to a Neighbor Using It ---
+adjacentHasColor(Node, ColorList, ColorID-_ColorName) :-
+    ( edge(Node, Neighbor) ; edge(Neighbor, Node) ),
+    member(hasColor(Neighbor, NeighborColorName), ColorList),
+    color(ColorID, NeighborColorName).
 
-% --- Save the result to a JSON file ---
-saveColorListToJSON(ColorList) :-
-    convertToJSON(ColorList, JSON),
-    open('colored_graph.json', write, Stream),
-    write(Stream, JSON),
-    close(Stream).
-
-% --- Convert the colored list to JSON format ---
-convertToJSON(ColorList, JSON) :-
-    findall(NodeColor, (
-        member(hasColor(Node, Color), ColorList),
-        NodeColor = json([node=Node, color=Color])
-    ), JSONList),
-    JSON = json([nodes=JSONList]).
-
-% --- Print Colored Graph (Optional) ---
+% --- Print Coloring Result to Terminal ---
 printColorList([]).
-printColorList([hasColor(Node, Color)|Rest]) :-
-    format('Node ~w has color ~w~n', [Node, Color]),
+printColorList([hasColor(Node, ColorName)|Rest]) :-
+    format('Node ~w has color ~w~n', [Node, ColorName]),
     printColorList(Rest).
+
+% --- Convert Result to JSON-Compatible Format ---
+convert_to_json(ColorList, json([colors=JsonColors])) :-
+    maplist(color_to_json, ColorList, JsonColors).
+
+color_to_json(hasColor(Node, ColorName), json([node=Node, color=ColorName])).
+
+% --- Save to JSON File ---
+saveJson(File) :-
+    findall(Node, node(Node), Nodes),
+    ( Nodes = [] -> format('Error: No nodes in graph~n'), fail ; true ),
+    greedyColorNodes(Nodes, [], ColorList),
+    convert_to_json(ColorList, Json),
+    ( catch(open(File, write, Stream), Error, (format('Error opening file ~w: ~w~n', [File, Error]), fail)) ->
+        json_write(Stream, Json),
+        close(Stream),
+        format('Saved coloring result to ~w~n', [File])
+    ; format('Failed to save coloring to ~w~n', [File]), fail
+    ).
+
+% --- Example Usage ---
+:- initialization((
+    load_graph('graphs.json'),
+    colorGraph,
+    saveJson('GREEDY_coloring.json')
+)).

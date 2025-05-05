@@ -1,71 +1,115 @@
 :- use_module(library(clpfd)).
 :- use_module(library(http/json)).
+:- use_module(library(http/json_convert)).
 
-% --- Colors ---
-color(1).  % Red
-color(2).  % Blue
-color(3).  % Green
-color(4).  % Yellow
+:- dynamic node/1.
+:- dynamic edge/2.
 
-% --- Nodes ---
-node(a). node(b). node(c). node(d). node(e).
-node(f). node(g). node(h).
+% --- Color Definitions ---
+color(1, red).
+color(2, blue).
+color(3, green).
+color(4, yellow).
 
-% --- Edges (undirected) ---
-edge(a,b). edge(a,c).
-edge(a,d). edge(a,e).
-edge(b,c). edge(c,d).
-edge(b,d).
+% --- Load Graph from JSON ---
+load_graph(File) :-
+    ( catch(open(File, read, Stream), Error, (format('Error opening file ~w: ~w~n', [File, Error]), fail)) ->
+        catch(json_read_dict(Stream, Dict), Error, (close(Stream), format('Error parsing JSON: ~w~n', [Error]), fail)),
+        close(Stream),
+        retractall(node(_)),
+        retractall(edge(_, _)),
+        ( get_dict(sommets, Dict, Nodes) -> true ; format('Error: JSON missing "sommets" key~n'), fail ),
+        ( get_dict(links, Dict, Links) -> true ; format('Error: JSON missing "links" key~n'), fail ),
+        ( is_list(Nodes) -> maplist(assert_node, Nodes) ; format('Error: "sommets" must be a list~n'), fail ),
+        ( dict_pairs(Links, _, Pairs) -> maplist(assert_edges, Pairs) ; format('Error: "links" must be a dictionary~n'), fail )
+    ; format('Failed to load graph from ~w~n', [File]), fail
+    ).
 
-edge(c,d). edge(c,e).
-edge(d,f).
-edge(e,f). edge(e,g).
-edge(f,h).
+assert_node(NodeStr) :-
+    atom_string(Node, NodeStr),
+    ( node(Node) -> true ; assertz(node(Node)) ).
+
+assert_edges(FromStr-ToList) :-
+    atom_string(From, FromStr),
+    ( is_list(ToList) ->
+        forall(member(ToStr, ToList), (
+            atom_string(To, ToStr),
+            assert_edge(From, To),
+            assert_edge(To, From)  % Ensure undirected graph
+        ))
+    ; format('Error: Edges for node ~w must be a list~n', [From]), fail
+    ).
+
+assert_edge(From, To) :-
+    ( edge(From, To) -> true ; assertz(edge(From, To)) ).
 
 % --- Run and Show Result in Console ---
-% Takes a list of nodes and colors them.
-colorGraph(Nodes) :-
-    assignColors(Nodes, [], ColorList),
-    printColorList(ColorList).
+colorGraph :-
+    findall(Node, node(Node), Nodes),
+    ( Nodes = [] -> format('Error: No nodes in graph~n'), fail ; true ),
+    color_nodes(Nodes, ColorAssignments),
+    printColorList(ColorAssignments).
 
 % --- Entry Point to Assign and Save as JSON ---
-% Takes a list of nodes and saves the coloring to a JSON file.
 saveToJson(File) :-
-    findall(Node, node(Node), Nodes),     % Get all nodes
-    assignColors(Nodes, [], ColorList),   % Color the nodes
-    convert_to_json(ColorList, JsonData), % Convert to JSON
-    open(File, write, Stream),             % Open the file for writing
-    json_write(Stream, JsonData),          % Write JSON data to file
-    close(Stream),                         % Close the stream
-    format('Coloring saved to ~w~n', [File]).
+    findall(Node, node(Node), Nodes),
+    ( Nodes = [] -> format('Error: No nodes in graph~n'), fail ; true ),
+    color_nodes(Nodes, ColorAssignments),
+    convert_to_json(ColorAssignments, JsonData),
+    ( catch(open(File, write, Stream), Error, (format('Error opening file ~w: ~w~n', [File, Error]), fail)) ->
+        json_write(Stream, JsonData),
+        close(Stream),
+        format('Coloring saved to ~w~n', [File])
+    ; format('Failed to save coloring to ~w~n', [File]), fail
+    ).
 
-% --- Backtracking Assignment ---
-% Base case: No nodes left, return accumulated color assignments.
-assignColors([], ColorList, ColorList).
-% Recursive case: Try assigning colors to remaining nodes.
-assignColors([Node|Rest], AssignedSoFar, ColorList) :-
-    color(Color),                                      % Pick a color
-    \+ hasConflict(Node, Color, AssignedSoFar),         % Check no conflict with neighbors
-    assignColors(Rest, [hasColor(Node, Color)|AssignedSoFar], ColorList).  % Assign color
+% --- CLP(FD)-Based Coloring ---
+color_nodes(Nodes, ColorAssignments) :-
+    length(Nodes, N),
+    findall(ColorID, color(ColorID, _), Colors),
+    length(Colors, NumColors),
+    length(ColorVars, N),  % One variable per node
+    ColorVars ins 1..NumColors,  % Domain: available color IDs
+    impose_constraints(Nodes, ColorVars),
+    label(ColorVars),  % Find a solution
+    pair_nodes_colors(Nodes, ColorVars, ColorAssignments).
 
-% --- Conflict Checker ---
-% Checks if the current node conflicts with neighbors (i.e., has the same color).
-hasConflict(Node, Color, ColorList) :-
-    edge(Node, Neighbor),
-    member(hasColor(Neighbor, Color), ColorList).
-hasConflict(Node, Color, ColorList) :-
-    edge(Neighbor, Node),
-    member(hasColor(Neighbor, Color), ColorList).
+impose_constraints(Nodes, ColorVars) :-
+    maplist(impose_node_constraints(Nodes, ColorVars), Nodes).
+
+impose_node_constraints(Nodes, ColorVars, Node) :-
+    nth1(Index, Nodes, Node),
+    nth1(Index, ColorVars, ColorVar),
+    findall(NeighborIndex, (
+        (edge(Node, Neighbor); edge(Neighbor, Node)),
+        nth1(NeighborIndex, Nodes, Neighbor)
+    ), NeighborIndices),
+    maplist(constrain_different(ColorVar, ColorVars), NeighborIndices).
+
+constrain_different(ColorVar, ColorVars, NeighborIndex) :-
+    nth1(NeighborIndex, ColorVars, NeighborColorVar),
+    ColorVar #\= NeighborColorVar.
+
+pair_nodes_colors([], [], []).
+pair_nodes_colors([Node|Nodes], [ColorID|ColorVars], [hasColor(Node, ColorName)|Rest]) :-
+    color(ColorID, ColorName),
+    pair_nodes_colors(Nodes, ColorVars, Rest).
 
 % --- Convert to JSON ---
-convert_to_json(ColorList, json([colors=JsonColors])) :-
-    maplist(color_to_json, ColorList, JsonColors).
+convert_to_json(ColorAssignments, json([colors=JsonColors])) :-
+    maplist(color_to_json, ColorAssignments, JsonColors).
 
-color_to_json(hasColor(Node, Color), json([node=Node, color=Color])).
-    
-% --- Result Printer (for console use) ---
-% Prints the color assignment for each node in the console.
-printColorList([]).  
-printColorList([hasColor(Node, Color)|Rest]) :-
-    format('Node ~w has color ~w~n', [Node, Color]),
+color_to_json(hasColor(Node, ColorName), json([node=Node, color=ColorName])).
+
+% --- Result Printer ---
+printColorList([]).
+printColorList([hasColor(Node, ColorName)|Rest]) :-
+    format('Node ~w has color ~w~n', [Node, ColorName]),
     printColorList(Rest).
+
+% --- Example Usage ---
+:- initialization((
+    load_graph('graphs.json'),
+    colorGraph,
+    saveToJson('BACKTRACKING_coloring.json')
+)).
