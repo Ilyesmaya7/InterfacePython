@@ -15,8 +15,7 @@ run_algorithm(Algorithm, Time) :-
     Time is End - Start,
     format('~w completed in ~w ms~n', [Algorithm, Time]).
 
-% --- Main Entry Point ---
-:- initialization(main).
+% --- Main Entry Point --- :- initialization(main).
 
 main :-
     % Define algorithms to test

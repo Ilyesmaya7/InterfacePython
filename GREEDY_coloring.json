@@ -1,12 +1,14 @@
 {
   "colors": [
-    {"node":"j","color":"red"},
-    {"node":"i","color":"red"},
-    {"node":"h","color":"red"},
+    {"node":"v","color":"yellow"},
+    {"node":"m","color":"green"},
+    {"node":"p","color":"blue"},
+    {"node":"i","color":"green"},
+    {"node":"u","color":"blue"},
+    {"node":"h","color":"green"},
+    {"node":"t","color":"red"},
     {"node":"g","color":"red"},
-    {"node":"f","color":"red"},
-    {"node":"e","color":"green"},
-    {"node":"d","color":"red"},
+    {"node":"d","color":"green"},
     {"node":"c","color":"blue"},
     {"node":"b","color":"blue"},
     {"node":"a","color":"red"}

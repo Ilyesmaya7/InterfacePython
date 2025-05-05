@@ -86,7 +86,7 @@ color_to_json(hasColor(Node, ColorName), json([node=Node, color=ColorName])).
 saveJson(File) :-
     findall(Node, node(Node), Nodes),
     ( Nodes = [] -> format('Error: No nodes in graph~n'), fail ; true ),
-    colorGraphDFS(Nodes, [], ColorList),
+    once(colorGraphDFS(Nodes, [], ColorList)),  % Only take the first solution!
     convert_to_json(ColorList, Json),
     ( catch(open(File, write, Stream), Error, (format('Error opening file ~w: ~w~n', [File, Error]), fail)) ->
         json_write(Stream, Json),

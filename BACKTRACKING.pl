@@ -57,7 +57,7 @@ colorGraph :-
 saveToJson(File) :-
     findall(Node, node(Node), Nodes),
     ( Nodes = [] -> format('Error: No nodes in graph~n'), fail ; true ),
-    color_nodes(Nodes, ColorAssignments),
+    once(color_nodes(Nodes, ColorAssignments)),  % Only take the first solution!
     convert_to_json(ColorAssignments, JsonData),
     ( catch(open(File, write, Stream), Error, (format('Error opening file ~w: ~w~n', [File, Error]), fail)) ->
         json_write(Stream, JsonData),
@@ -115,10 +115,3 @@ backtracking_color_graph :-
     load_graph('graphs.json'),
     colorGraph,
     saveToJson('BACKTRACKING_coloring.json').
-
-% --- Example Usage ---
-:- initialization((
-    load_graph('graphs.json'),
-    colorGraph,
-    saveToJson('BACKTRACKING_coloring.json')
-)).
