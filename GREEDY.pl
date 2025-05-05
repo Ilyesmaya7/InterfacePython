@@ -1,3 +1,6 @@
+% filepath: c:\Users\gamer\OneDrive\Desktop\PProlog25-IlyesMaya-OubaidBeldi-KhadraouiOussama\PProlog25-IlyesMaya-OubaidBeldi-KhadraouiOussama\InterfacePython\GREEDY.pl
+:- module(greedy, [greedy_color_graph/0]).
+
 :- use_module(library(http/json)).
 :- use_module(library(http/json_convert)).
 
@@ -88,9 +91,8 @@ saveJson(File) :-
     ; format('Failed to save coloring to ~w~n', [File]), fail
     ).
 
-% --- Example Usage ---
-:- initialization((
+% --- Main Predicate for Greedy ---
+greedy_color_graph :-
     load_graph('graphs.json'),
     colorGraph,
-    saveJson('GREEDY_coloring.json')
-)).
+    saveJson('GREEDY_coloring.json').

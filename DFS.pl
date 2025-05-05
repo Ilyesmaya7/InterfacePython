@@ -1,3 +1,5 @@
+% filepath: c:\Users\gamer\OneDrive\Desktop\PProlog25-IlyesMaya-OubaidBeldi-KhadraouiOussama\PProlog25-IlyesMaya-OubaidBeldi-KhadraouiOussama\InterfacePython\DFS.pl
+:- module(dfs, [dfs_color_graph/0]).
 :- use_module(library(http/json)).
 :- use_module(library(http/json_convert)).
 
@@ -93,9 +95,8 @@ saveJson(File) :-
     ; format('Failed to save coloring to ~w~n', [File]), fail
     ).
 
-% --- Example Usage ---
-:- initialization((
+% --- Main Predicate for DFS ---
+dfs_color_graph :-
     load_graph('graphs.json'),
     colorGraph,
-    saveJson('DFS_coloring.json')
-)).
+    saveJson('DFS_coloring.json').

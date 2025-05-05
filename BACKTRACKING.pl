@@ -1,3 +1,6 @@
+% filepath: c:\Users\gamer\OneDrive\Desktop\PProlog25-IlyesMaya-OubaidBeldi-KhadraouiOussama\PProlog25-IlyesMaya-OubaidBeldi-KhadraouiOussama\InterfacePython\BACKTRACKING.pl
+:- module(backtracking, [backtracking_color_graph/0]).
+
 :- use_module(library(clpfd)).
 :- use_module(library(http/json)).
 :- use_module(library(http/json_convert)).
@@ -106,6 +109,12 @@ printColorList([]).
 printColorList([hasColor(Node, ColorName)|Rest]) :-
     format('Node ~w has color ~w~n', [Node, ColorName]),
     printColorList(Rest).
+
+% --- Main Predicate for Backtracking ---
+backtracking_color_graph :-
+    load_graph('graphs.json'),
+    colorGraph,
+    saveToJson('BACKTRACKING_coloring.json').
 
 % --- Example Usage ---
 :- initialization((
