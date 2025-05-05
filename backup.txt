@@ -1,0 +1,297 @@
+import tkinter as tk
+from tkinter import simpledialog, messagebox
+import networkx as nx
+import matplotlib.pyplot as plt
+import json
+from networkx.readwrite import json_graph
+
+# Constants for file paths and node colors
+GRAPH_FILE = "graphs.json"
+NODES_FILE = "nodes.json"
+NODE_COLORS = ["red", "blue", "yellow", "green"]  # Node colors
+
+# ---------- Utility Functions ----------
+
+def load_graphs_from_file():
+    """Loads graphs from a JSON file."""
+    try:
+        with open(GRAPH_FILE, "r") as f:
+            data = json.load(f)
+            graphs = {gid: json_graph.node_link_graph(gdata) for gid, gdata in data.items()}
+            # Restore positions if they exist
+            for gid, graph in graphs.items():
+                if 'pos' in data[gid]:
+                    graph.graph['pos'] = {node: [float(x), float(y)] for node, (x, y) in data[gid]['pos'].items()}
+            return graphs
+    except FileNotFoundError:
+        return {}
+
+def save_graphs_to_file(graphs):
+    """Saves graphs to a JSON file, including node positions."""
+    data = {}
+    for gid, graph in graphs.items():
+        graph_data = json_graph.node_link_data(graph)
+        # Include positions if they exist
+        if hasattr(graph, 'graph') and 'pos' in graph.graph:
+            graph_data['pos'] = {node: [float(x), float(y)] for node, (x, y) in graph.graph['pos'].items()}
+        data[gid] = graph_data
+    with open(GRAPH_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def load_nodes_from_file():
+    """Loads available nodes from a file."""
+    try:
+        with open(NODES_FILE, "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        print("❌ nodes.json file not found.")
+        return []
+
+def get_used_nodes(graphs):
+    """Returns a set of all used node IDs from all graphs."""
+    used_nodes = set()
+    for graph in graphs.values():
+        used_nodes.update(graph.nodes)
+    return used_nodes
+
+def get_new_node(used_nodes):
+    """Gets the next available unique node ID."""
+    nodes = load_nodes_from_file()
+    for node in nodes:
+        if node["id"] not in used_nodes:
+            used_nodes.add(node["id"])
+            return node["id"]
+    print("❌ No available unique nodes left!")
+    return None
+
+# ---------- Graph Operations ----------
+
+def create_graph(graphs, graph_id=None):
+    """Creates a new graph with a unique ID."""
+    if not graph_id:
+        graph_id = simpledialog.askstring("Create Graph", "Enter a unique ID for the graph:")
+    if graph_id in graphs:
+        messagebox.showerror("Error", f"❌ Graph '{graph_id}' already exists with {len(graphs[graph_id].nodes)} nodes.")
+    else:
+        graphs[graph_id] = nx.Graph()
+        messagebox.showinfo("Success", f"✅ New graph '{graph_id}' created.")
+        # Ask for action after creating the graph
+        after_create_graph(graphs, graph_id)
+
+def after_create_graph(graphs, graph_id):
+    """Prompts user to choose what to do after creating a graph."""
+    while True:
+        option = simpledialog.askstring("Choose Action", 
+                                        f"Choose an action for graph '{graph_id}':\n"
+                                        "1. Add Node\n"
+                                        "2. Display Graph\n"
+                                        "3. Delete Graph\n"
+                                        "4. Back to Main Menu\n"
+                                        "Enter a number (1-4):")
+        
+        if option == "1":
+            add_node(graphs, graph_id)
+        elif option == "2":
+            draw_graph(graphs, graph_id)
+        elif option == "3":
+            del graphs[graph_id]
+            messagebox.showinfo("Success", f"✅ Graph '{graph_id}' deleted.")
+            save_graphs_to_file(graphs)
+            break  # Exit the loop after deletion
+        elif option == "4":
+            break  # Exit back to main menu
+        else:
+            messagebox.showerror("Error", "❌ Invalid option. Please choose a number between 1 and 4.")
+
+def add_node(graphs, graph_id=None):
+    """Adds nodes to a graph."""
+    if graph_id is None:
+        graph_id = simpledialog.askstring("Add Nodes", "Enter the graph ID you want to add nodes to:")
+        if graph_id not in graphs:
+            messagebox.showerror("Error", "❌ Graph does not exist.")
+            return
+
+    try:
+        n = int(simpledialog.askstring(f"Add Nodes to Graph '{graph_id}'", f"How many nodes do you want to add to graph '{graph_id}'?"))
+        if n <= 0:
+            raise ValueError("The number of nodes must be a positive number.")
+    except ValueError as e:
+        messagebox.showerror("Error", f"❌ {e}. Please enter a valid positive number.")
+        return
+
+    used_nodes = get_used_nodes(graphs)
+    added = 0
+    for _ in range(n):
+        node_id = get_new_node(used_nodes)
+        if node_id:
+            graphs[graph_id].add_node(node_id)
+            added += 1
+
+    messagebox.showinfo("Success", f"✅ {added} nodes added to graph '{graph_id}'.")
+    save_graphs_to_file(graphs)
+
+def draw_graph(graphs, graph_id):
+    """Draws the graph, allows dragging nodes, adding edges, and deleting edges by clicking."""
+    if graph_id in graphs:
+        graph = graphs[graph_id]
+        node_colors = [NODE_COLORS[i % len(NODE_COLORS)] for i in range(len(graph.nodes))]
+
+        fig, ax = plt.subplots()
+        
+        # Use saved positions if they exist, otherwise generate new ones
+        if hasattr(graph, 'graph') and 'pos' in graph.graph:
+            pos = graph.graph['pos']
+        else:
+            pos = nx.spring_layout(graph)
+        
+        current_pos = pos.copy()  # Store current positions to update later
+
+        # Draw the graph initially
+        nx.draw(graph, pos=pos, with_labels=True, node_color=node_colors, node_size=2000, font_color="white", ax=ax)
+
+        # Variables for dragging state and edge selection
+        dragged_node = None
+        clicked_nodes = []
+
+        def on_click(event):
+            """Handles mouse click events to drag nodes, select nodes for edges, or delete edges."""
+            nonlocal dragged_node, clicked_nodes
+            if event.inaxes != ax:
+                return
+
+            # Check if a node was clicked (for dragging or edge creation)
+            node_clicked = False
+            for node, (x, y) in pos.items():
+                if abs(event.xdata - x) < 0.1 and abs(event.ydata - y) < 0.1:
+                    dragged_node = node
+                    if node not in clicked_nodes:
+                        clicked_nodes.append(node)
+                        ax.text(x, y, node, color="black", fontsize=12, ha="center", va="center")
+
+                    if len(clicked_nodes) == 2:
+                        # Check for duplicate edge before adding
+                        node_a, node_b = clicked_nodes
+                        if graph.has_edge(node_a, node_b):
+                            messagebox.showerror("Error", f"❌ Edge between '{node_a}' and '{node_b}' already exists.")
+                        else:
+                            graph.add_edge(node_a, node_b)
+                            messagebox.showinfo("Edge Added", f"Edge added between '{node_a}' and '{node_b}'")
+                        plt.cla()
+                        nx.draw(graph, pos=pos, with_labels=True, node_color=node_colors, node_size=2000, font_color="white", ax=ax)
+                        clicked_nodes = []
+                    node_clicked = True
+                    break
+
+            # If no node was clicked, check if an edge was clicked
+            if not node_clicked:
+                for edge in list(graph.edges()):  # Use list to avoid runtime modification issues
+                    node1, node2 = edge
+                    x1, y1 = pos[node1]
+                    x2, y2 = pos[node2]
+                    # Calculate distance from click to the line segment between node1 and node2
+                    px, py = event.xdata, event.ydata
+                    # Line segment vector
+                    dx, dy = x2 - x1, y2 - y1
+                    # Vector from (x1, y1) to click point
+                    dpx, dpy = px - x1, py - y1
+                    # Length of the line segment squared
+                    len_sq = dx**2 + dy**2
+                    if len_sq == 0:
+                        continue
+                    # Project the click point onto the line
+                    t = max(0, min(1, (dpx * dx + dpy * dy) / len_sq))
+                    # Closest point on the line segment to the click
+                    closest_x = x1 + t * dx
+                    closest_y = y1 + t * dy
+                    # Distance from click to closest point
+                    distance = ((px - closest_x)**2 + (py - closest_y)**2)**0.5
+                    if distance < 0.05:  # Threshold for clicking an edge
+                        graph.remove_edge(node1, node2)
+                        messagebox.showinfo("Edge Deleted", f"Edge between '{node1}' and '{node2}' deleted.")
+                        plt.cla()
+                        nx.draw(graph, pos=pos, with_labels=True, node_color=node_colors, node_size=2000, font_color="white", ax=ax)
+                        plt.draw()
+                        break
+
+            plt.draw()
+
+        def on_motion(event):
+            """Handles mouse motion events to drag nodes."""
+            nonlocal dragged_node
+            if event.inaxes != ax or dragged_node is None:
+                return
+
+            # Update the position of the dragged node
+            pos[dragged_node] = [event.xdata, event.ydata]
+            current_pos[dragged_node] = [event.xdata, event.ydata]
+
+            # Redraw the graph
+            plt.cla()
+            nx.draw(graph, pos=pos, with_labels=True, node_color=node_colors, node_size=2000, font_color="white", ax=ax)
+            plt.draw()
+
+        def on_release(event):
+            """Handles mouse release events to finalize the dragged node position."""
+            nonlocal dragged_node
+            dragged_node = None
+
+        def on_close(event):
+            """Handles the closing of the plot window to save node positions."""
+            # Save the final positions to the graph
+            graph.graph['pos'] = {node: [float(x), float(y)] for node, (x, y) in pos.items()}
+            save_graphs_to_file(graphs)
+            messagebox.showinfo("Success", f"✅ Node positions for graph '{graph_id}' saved.")
+
+        fig.canvas.mpl_connect('button_press_event', on_click)
+        fig.canvas.mpl_connect('motion_notify_event', on_motion)
+        fig.canvas.mpl_connect('button_release_event', on_release)
+        fig.canvas.mpl_connect('close_event', on_close)
+
+        plt.margins(0.2)
+        plt.show()
+
+    else:
+        messagebox.showerror("Error", "❌ Graph ID does not exist.")
+
+# ---------- GUI Setup ----------
+
+def show_menu(graphs):
+    """Displays a popup menu with options."""
+    while True:
+        option = simpledialog.askstring("Choose an Option", 
+                                        "Choose an option:\n"
+                                        "1. Create a new graph\n"
+                                        "2. Choose from existing graphs\n"
+                                        "3. Exit\n"
+                                        "Enter a number (1-3):")
+
+        if option == "1":
+            create_graph(graphs)
+        elif option == "2":
+            if not graphs:
+                messagebox.showinfo("Error", "❌ No graphs available.")
+                continue
+            graph_id = simpledialog.askstring("Choose Graph", f"Choose an existing graph:\n{', '.join(graphs.keys())}")
+            if graph_id in graphs:
+                after_create_graph(graphs, graph_id)
+            else:
+                messagebox.showerror("Error", "❌ Invalid graph ID.")
+        elif option == "3":
+            save_graphs_to_file(graphs)
+            messagebox.showinfo("Success", "✅ Graphs saved. Exiting...")
+            break
+        else:
+            messagebox.showerror("Error", "❌ Invalid option. Please choose a number between 1 and 3.")
+
+# ---------- Main Execution ----------
+
+def main():
+    """Main function to run graph operations.""" 
+    graphs = load_graphs_from_file()
+    show_menu(graphs)
+
+# Run the program
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    main()
