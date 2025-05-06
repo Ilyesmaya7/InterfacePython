@@ -6,6 +6,11 @@
     {"node":"d","color":"green"},
     {"node":"g","color":"red"},
     {"node":"t","color":"red"},
-    {"node":"h","color":"green"}
+    {"node":"h","color":"green"},
+    {"node":"u","color":"blue"},
+    {"node":"i","color":"green"},
+    {"node":"p","color":"blue"},
+    {"node":"m","color":"green"},
+    {"node":"v","color":"yellow"}
   ]
 }
